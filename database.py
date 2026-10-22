@@ -4,7 +4,6 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlparse
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 IS_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
@@ -18,9 +17,10 @@ def get_connection():
     if IS_POSTGRES:
         try:
             import psycopg
+            from psycopg.rows import dict_row
         except ImportError as exc:
             raise RuntimeError("DATABASE_URL menggunakan PostgreSQL tetapi psycopg belum terpasang.") from exc
-        conn = psycopg.connect(DATABASE_URL, connect_timeout=10)
+        conn = psycopg.connect(DATABASE_URL, connect_timeout=10, row_factory=dict_row)
         try:
             with conn:
                 yield conn
