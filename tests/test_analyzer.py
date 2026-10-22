@@ -7,4 +7,4 @@ def test_report_is_versioned_and_has_limitations():
     assert report["schema_version"] == "1.1"
     assert report["case_name"] == "test case"
     assert report["limitations"]
-    assert "identity" in report["summary"]
+    assert "identitas" in report["summary"]
