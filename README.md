@@ -71,3 +71,35 @@ GitHub Actions menjalankan test suite pada push/PR. CI bukan pengganti peninjaua
 - Tidak melakukan port scanning, crawling mendalam, pencarian akun, atau atribusi identitas.
 - DNS rebinding tetap perlu mitigasi di jaringan/egress layer.
 - PostgreSQL perlu disediakan operator dan diuji di lingkungan hosting.
+
+
+## Daily target monitoring (MVP Plus)
+
+The target registry and scheduler are opt-in. Adding a target does **not** fetch its web page and newly added targets are disabled by default. Only enable a target if you own it or have explicit authorization to monitor it.
+
+### In the Streamlit UI
+
+1. Open **Pemantauan otomatis**.
+2. Add one URL per line. The form is prefilled with `https://example.com` and `https://www.example.org` as examples; these are not automatically scanned.
+3. Review the host allowlist errors. The app only accepts HTTPS on port 443 and exact hostnames present in `OSINT_ALLOWED_HOSTS`.
+4. Tick **Aktifkan** for the target(s) you are authorized to monitor and click **Simpan status**.
+5. Use the history page to inspect saved snapshots and export CSV.
+
+### Configure a 24-hour schedule on GitHub Actions
+
+The workflow `.github/workflows/daily-monitor.yml` runs daily at 02:17 UTC and can also be started manually from the Actions tab using `workflow_dispatch`. GitHub scheduled workflows run from the repository's default branch, so merge this branch/PR to the default branch before expecting the daily schedule to execute.
+
+Set these repository configuration values in GitHub:
+
+- **Repository secret** `DATABASE_URL`: connection string for a persistent PostgreSQL database reachable from GitHub-hosted runners. Use a restricted database role and TLS; never put the connection string in code or a public repository variable.
+- **Repository variable** `OSINT_ALLOWED_HOSTS`: comma-separated exact hostnames, for example `example.com,www.example.com,example.org,www.example.org`. Include only authorized targets. The workflow intentionally fails if this variable or the database secret is missing.
+
+The scheduled runner reads only enabled rows from `monitored_targets`, revalidates each target against the allowlist and public-IP DNS policy, collects one bounded HTTP response, compares it with the latest saved snapshot, and persists the new snapshot in PostgreSQL. No crawling, port scanning, arbitrary domain discovery, or identity attribution is performed.
+
+### Hosting notes and limitations
+
+- Streamlit Community Cloud does not guarantee a persistent local filesystem. The scheduled runner and web app must share the same PostgreSQL `DATABASE_URL` for a common target registry and history.
+- For the Streamlit web app, configure `DATABASE_URL` and `OSINT_ALLOWED_HOSTS` in the hosting environment/secrets as supported by that host, then redeploy.
+- GitHub Actions cron is best-effort, not an exact-time guarantee. Daily runs may be delayed and public repositories can have additional scheduling restrictions.
+- DNS checks in application code alone cannot completely prevent DNS rebinding. Apply outbound network controls where possible. Do not expose the Streamlit app publicly without authentication at a trusted proxy/SSO layer.
+- Adding URLs to the list is not proof of authorization. Operators are responsible for authorization and applicable policies.
