@@ -10,7 +10,7 @@ from urllib.parse import urlparse, urlunparse
 import requests
 from bs4 import BeautifulSoup
 
-DEFAULT_ALLOWED_HOSTS = {"example.com", "www.example.com"}
+DEFAULT_ALLOWED_HOSTS = {"example.com", "www.example.com", "example.org", "www.example.org"}
 ALLOWED_HOSTS = {
     host.strip().lower().rstrip(".")
     for host in os.getenv("OSINT_ALLOWED_HOSTS", ",".join(sorted(DEFAULT_ALLOWED_HOSTS))).split(",")
