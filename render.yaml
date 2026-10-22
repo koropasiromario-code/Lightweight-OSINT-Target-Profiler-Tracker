@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: lightweight-osint-target-profiler
+    runtime: docker
+    plan: starter
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: OSINT_ALLOWED_HOSTS
+        value: example.com,www.example.com
+      - key: OSINT_TIMEOUT_SECONDS
+        value: "8"
+      - key: OSINT_MAX_RESPONSE_BYTES
+        value: "1000000"
