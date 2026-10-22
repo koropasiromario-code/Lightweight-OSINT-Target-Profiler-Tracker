@@ -4,6 +4,7 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
+from datetime import datetime, timezone
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 IS_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
@@ -51,6 +52,15 @@ def initialize_database():
                     content_json TEXT NOT NULL
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS monitored_targets (
+                    id BIGSERIAL PRIMARY KEY,
+                    target TEXT NOT NULL UNIQUE,
+                    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                    interval_hours INTEGER NOT NULL DEFAULT 24,
+                    created_at TEXT NOT NULL
+                )
+            """)
         else:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS snapshots (
@@ -60,7 +70,58 @@ def initialize_database():
                     content_json TEXT NOT NULL
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS monitored_targets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    target TEXT NOT NULL UNIQUE,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    interval_hours INTEGER NOT NULL DEFAULT 24,
+                    created_at TEXT NOT NULL
+                )
+            """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_target_time ON snapshots(target, collected_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_monitored_targets_enabled ON monitored_targets(enabled)")
+
+
+def add_target(target: str, interval_hours: int = 24):
+    interval_hours = int(interval_hours)
+    if interval_hours not in (1, 6, 12, 24, 168):
+        raise ValueError("Interval harus 1, 6, 12, 24, atau 168 jam.")
+    with get_connection() as conn:
+        # New targets are intentionally disabled until an operator confirms authorization.
+        if IS_POSTGRES:
+            conn.execute(
+                "INSERT INTO monitored_targets(target, enabled, interval_hours, created_at) VALUES (?, FALSE, ?, ?) ON CONFLICT(target) DO NOTHING",
+                (target, interval_hours, datetime.now(timezone.utc).isoformat()),
+            )
+        else:
+            conn.execute(
+                "INSERT OR IGNORE INTO monitored_targets(target, enabled, interval_hours, created_at) VALUES (?, 0, ?, ?)",
+                (target, interval_hours, datetime.now(timezone.utc).isoformat()),
+            )
+
+
+def get_targets(enabled_only: bool = False) -> list[dict]:
+    query = "SELECT id, target, enabled, interval_hours, created_at FROM monitored_targets"
+    if enabled_only:
+        query += " WHERE enabled = " + ("TRUE" if IS_POSTGRES else "1")
+    query += " ORDER BY id"
+    with get_connection() as conn:
+        rows = conn.execute(query).fetchall()
+    return [dict(row) for row in rows]
+
+
+def set_target_enabled(target_id: int, enabled: bool):
+    with get_connection() as conn:
+        conn.execute(
+            _sql("UPDATE monitored_targets SET enabled = ? WHERE id = ?"),
+            (bool(enabled) if IS_POSTGRES else int(bool(enabled)), int(target_id)),
+        )
+
+
+def remove_target(target_id: int):
+    with get_connection() as conn:
+        conn.execute(_sql("DELETE FROM monitored_targets WHERE id = ?"), (int(target_id),))
 
 
 def save_snapshot(target: str, content: dict):
