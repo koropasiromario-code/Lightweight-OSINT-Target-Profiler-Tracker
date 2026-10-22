@@ -8,7 +8,10 @@ import streamlit as st
 
 from analyzer import create_report
 from collector import CollectionError, TargetValidationError, collect_metadata, validate_target
-from database import get_snapshots, initialize_database, save_snapshot
+from database import (
+    add_target, get_snapshots, get_targets, initialize_database,
+    remove_target, save_snapshot, set_target_enabled,
+)
 from tracker import compare_with_previous
 
 logging.basicConfig(level=logging.INFO)
@@ -94,6 +97,60 @@ if result and comparison and report:
         use_container_width=True,
     )
 
+st.divider()
+st.header("Pemantauan otomatis")
+st.write("Tambahkan target yang memang Anda berwenang pantau. Target baru selalu nonaktif sampai Anda mengaktifkannya secara eksplisit.")
+st.caption("Pemeriksaan terjadwal berjalan melalui GitHub Actions setiap 24 jam setelah workflow digabungkan ke branch default dan DATABASE_URL dikonfigurasi.")
+
+with st.form("add_monitor_targets"):
+    target_lines = st.text_area(
+        "Daftar URL (satu URL per baris)",
+        value="https://example.com\nhttps://www.example.org",
+        help="Contoh awal disediakan untuk konfigurasi. Menambahkannya tidak langsung mengambil halaman web.",
+    )
+    submitted = st.form_submit_button("Tambahkan ke daftar")
+if submitted:
+    added = 0
+    errors = []
+    for line in target_lines.splitlines():
+        candidate = line.strip()
+        if not candidate:
+            continue
+        try:
+            # Validates scheme, exact allowlist and DNS policy; this does not issue an HTTP request.
+            normalized = validate_target(candidate)
+            parsed = urlsplit(normalized)
+            safe_target = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+            add_target(safe_target, 24)
+            added += 1
+        except (TargetValidationError, ValueError) as exc:
+            errors.append(f"{candidate}: {exc}")
+    if added:
+        st.success(f"{added} URL diproses. Target baru tetap nonaktif sampai diaktifkan di daftar.")
+    for error in errors:
+        st.warning(error)
+
+targets = get_targets()
+if targets:
+    st.subheader("Daftar target")
+    for item in targets:
+        with st.container(border=True):
+            left, middle, right = st.columns([5, 2, 2])
+            left.write(item["target"])
+            left.caption(f"Interval tersimpan: setiap {item['interval_hours']} jam")
+            desired = middle.checkbox("Aktifkan", value=bool(item["enabled"]), key=f"monitor_enabled_{item['id']}")
+            if right.button("Simpan status", key=f"save_monitor_{item['id']}"):
+                set_target_enabled(item["id"], desired)
+                st.success("Status target diperbarui.")
+                st.rerun()
+            if right.button("Hapus", key=f"delete_monitor_{item['id']}"):
+                remove_target(item["id"])
+                st.rerun()
+    enabled_count = sum(bool(item["enabled"]) for item in targets)
+    st.caption(f"{enabled_count} dari {len(targets)} target aktif.")
+else:
+    st.info("Belum ada target. Tambahkan URL di atas untuk membuat daftar monitoring.")
+
 if show_history:
     try:
         normalized = validate_target(target)
@@ -127,4 +184,4 @@ if show_history:
         st.error("Riwayat tidak dapat dimuat. Periksa log server.")
 
 st.divider()
-st.caption("Untuk hosting multi-pengguna, aktifkan autentikasi di lapisan hosting/proxy dan gunakan PostgreSQL persisten. Jangan mengekspos aplikasi tanpa kontrol akses.")
+st.caption("Hosting multi-pengguna perlu autentikasi proxy/SSO dan PostgreSQL persisten. Scheduler memproses hanya target yang diaktifkan.")
