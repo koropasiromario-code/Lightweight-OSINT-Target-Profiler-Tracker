@@ -2,12 +2,12 @@ import csv
 import io
 import json
 import logging
-from datetime import datetime, timezone
+from urllib.parse import urlsplit, urlunsplit
 
 import streamlit as st
 
 from analyzer import create_report
-from collector import CollectionError, TargetValidationError, collect_metadata
+from collector import CollectionError, TargetValidationError, collect_metadata, validate_target
 from database import get_snapshots, initialize_database, save_snapshot
 from tracker import compare_with_previous
 
@@ -24,7 +24,7 @@ with st.sidebar:
     st.header("Pengaturan kasus")
     case_name = st.text_input("Nama kasus", value="Website monitoring")
     st.info("Gunakan hanya aset yang Anda miliki atau yang secara eksplisit mengizinkan pengujian.")
-    st.caption("Host yang diizinkan dikonfigurasi oleh operator melalui OSINT_ALLOWED_HOSTS.")
+    st.caption("Host yang diizinkan dikonfigurasi operator melalui OSINT_ALLOWED_HOSTS.")
 
 target = st.text_input("URL target", value="https://example.com", help="Hanya HTTPS, port 443, dan host yang dikonfigurasi operator.")
 run_col, history_col = st.columns(2)
@@ -86,10 +86,9 @@ if result and comparison and report:
         for item in report["limitations"]:
             st.write(f"- {item}")
 
-    report_payload = {"profile": result, "comparison": comparison, "report": report}
     st.download_button(
         "Unduh laporan JSON",
-        data=json.dumps(report_payload, indent=2, ensure_ascii=False),
+        data=json.dumps({"profile": result, "comparison": comparison, "report": report}, indent=2, ensure_ascii=False),
         file_name="osint_report.json",
         mime="application/json",
         use_container_width=True,
@@ -97,9 +96,7 @@ if result and comparison and report:
 
 if show_history:
     try:
-        normalized = collect_metadata.__globals__["validate_target"](target)
-        # Match the collector's privacy-preserving stored URL (query values are not persisted).
-        from urllib.parse import urlsplit, urlunsplit
+        normalized = validate_target(target)
         parsed = urlsplit(normalized)
         history_target = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
         snapshots = get_snapshots(history_target, limit=100)
