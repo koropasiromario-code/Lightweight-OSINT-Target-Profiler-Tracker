@@ -82,6 +82,21 @@ def initialize_database():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_target_time ON snapshots(target, collected_at DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_monitored_targets_enabled ON monitored_targets(enabled)")
 
+        # Seed the requested examples as disabled entries only. Seeding does not make HTTP requests
+        # and does not authorize monitoring; an operator must explicitly enable each target.
+        seed_targets = ("https://example.com/", "https://www.example.org/")
+        for seed_target in seed_targets:
+            if IS_POSTGRES:
+                conn.execute(
+                    "INSERT INTO monitored_targets(target, enabled, interval_hours, created_at) VALUES (?, FALSE, 24, ?) ON CONFLICT(target) DO NOTHING",
+                    (seed_target, datetime.now(timezone.utc).isoformat()),
+                )
+            else:
+                conn.execute(
+                    "INSERT OR IGNORE INTO monitored_targets(target, enabled, interval_hours, created_at) VALUES (?, 0, 24, ?)",
+                    (seed_target, datetime.now(timezone.utc).isoformat()),
+                )
+
 
 def add_target(target: str, interval_hours: int = 24):
     interval_hours = int(interval_hours)
